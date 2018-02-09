@@ -1,3 +1,8 @@
+import MySQLdb
+from dateutil import parser
+import datetime
+
+
 # function to parse the input
 # price update
 def parsePriceUpdate(price):
@@ -16,14 +21,208 @@ def parsePriceUpdate(price):
     return splitedPrice
 
 
-# def processRequest(input):
+def processPriceUpdate(priceUpdate):
+    parsedPriceUpdate = parsePriceUpdate(priceUpdate)
+    if parsedPriceUpdate:
+        # ---insert if not exists / update if it does---
+        priceExist = checkIfPriceExists(parsedPriceUpdate)
+        # if price exist update else insert
+        if not priceExist:
+            print "In insert"
+            insertPriceUpdate(parsedPriceUpdate)
+        else:
+            print "In update"
+            print priceExist
+            updatePriceUpdate(priceExist, parsedPriceUpdate)
+        priceExistRevert = checkIfPriceExistsRevert(parsedPriceUpdate)
+        # if price exist update else insert
+        if not priceExistRevert:
+            print "In insert2"
+            insertPriceUpdateRevert(parsedPriceUpdate)
+        else:
+            print "In update2"
+            updatePriceUpdateRevert(priceExistRevert, parsedPriceUpdate)
+        #------
+
+        #create exchange to exchange weights
+        if checkIfWeightCanCreated(parsedPriceUpdate):
+            print "ok"
+
+    else:
+        return False
+
+#2017-11-01T09:42:23+00:00 KRAKEN BTC USD 1000.0 0.0009 2017-11-01T09:43:23+00:00 GDAX BTC USD 1001.0 0.0008
+def checkIfWeightCanCreated(price):
+    db = getMysqlCursor()
+    mysqlCur = db.cursor()
+
+    mysqlCur.execute(
+        """SELECT source_exchange, source_currency FROM frateData.edgeWeights
+         where source_exchange != %s and source_currency = %s""",
+        [price['exchange'], price['source_currency']])
+    # gets the number of rows affected by the command executed
+    row_count = mysqlCur.rowcount
+    if not row_count == 0:
+        existingPair = list(mysqlCur.fetchone())
+        print existingPair
+        print price
+        mysqlCur.execute("""INSERT INTO `frateData`.`edgeWeights`
+        (`source_exchange`, `source_currency`, `destination_exchange`,
+        `destination_currency`, `edge`, `rate_time_ex`)
+        VALUES (%s, %s, %s, %s, %s, %s)""",
+                         [price['exchange'], price['source_currency'],
+                          existingPair[0],
+                          existingPair[1], 1, datetime.datetime.now()])
+        db.commit()
+
+
+
+def updatePriceUpdate(priceUpdateId, priceUpdateData):
+    db = getMysqlCursor()
+    mysqlCur = db.cursor()
+
+
+    mysqlCur.execute("""UPDATE `frateData`.`edgeWeights`
+     SET `edge`= %s, `rate_time_ex`= %s WHERE `id`= %s;""", [priceUpdateData['forward_factor'], parser.parse(priceUpdateData['timestamp']), priceUpdateId])
+    db.commit()
+
+    # print "update failed"
+    # db.rollback()
+
+
+def updatePriceUpdateRevert(priceUpdateId, priceUpdateData):
+    db = getMysqlCursor()
+    mysqlCur = db.cursor()
+
+
+    mysqlCur.execute("""UPDATE `frateData`.`edgeWeights`
+     SET `edge`= %s, `rate_time_ex`= %s WHERE `id`= %s;""", [priceUpdateData['backward_factor'],parser.parse(priceUpdateData['timestamp']), priceUpdateId])
+    db.commit()
+
+        # print "update failed"
+        # db.rollback()
+
+
+def checkIfPriceExists(price):
+    db = getMysqlCursor()
+    mysqlCur = db.cursor()
+
+    mysqlCur.execute(
+        """SELECT id FROM frateData.edgeWeights
+         where source_exchange = %s and source_currency = %s and  destination_exchange = %s and destination_currency = %s""",
+        [price['exchange'], price['source_currency'], price['exchange'], price['destination_currency']])
+    # gets the number of rows affected by the command executed
+    row_count = mysqlCur.rowcount
+    if row_count == 0:
+        return False
+    else:
+        id = mysqlCur.fetchone()[0]
+        return id
+
+def checkIfPriceExistsRevert(price):
+    db = getMysqlCursor()
+    mysqlCur = db.cursor()
+
+    print price
+
+    mysqlCur.execute(
+        """SELECT id FROM frateData.edgeWeights
+         where source_exchange = %s and source_currency = %s and  destination_exchange = %s and destination_currency = %s""",
+        [price['exchange'], price['destination_currency'], price['exchange'],price['source_currency']])
+    # gets the number of rows affected by the command executed
+    row_count = mysqlCur.rowcount
+    if row_count == 0:
+        return False
+    else:
+        id = mysqlCur.fetchone()[0]
+        return id
+
+def insertPriceUpdate(price):
+    db = getMysqlCursor()
+    mysqlCur = db.cursor()
+    try:
+        mysqlCur.execute("""INSERT INTO `frateData`.`edgeWeights` 
+        (`source_exchange`, `source_currency`, `destination_exchange`, 
+        `destination_currency`, `edge`, `rate_time_ex`) 
+        VALUES (%s, %s, %s, %s, %s, %s)""",
+                         [price['exchange'], price['source_currency'],
+                          price['exchange'],
+                          price['destination_currency'], price['forward_factor'],
+                          parser.parse(price['timestamp'])])
+        db.commit()
+    except:
+        db.rollback()
+
+    db.close()
+
+def insertPriceUpdateRevert(price):
+    db = getMysqlCursor()
+    mysqlCur = db.cursor()
+    try:
+        mysqlCur.execute("""INSERT INTO `frateData`.`edgeWeights` 
+        (`source_exchange`, `source_currency`, `destination_exchange`, 
+        `destination_currency`, `edge`, `rate_time_ex`) 
+        VALUES (%s, %s, %s, %s, %s, %s)""",
+                         [price['exchange'], price['destination_currency'],
+                          price['exchange'],
+                          price['source_currency'], price['backward_factor'],
+                          parser.parse(price['timestamp'])])
+        db.commit()
+    except:
+        db.rollback()
+
+    db.close()
+
+
+# EXCHANGE_RATE_REQUEST <source_exchange> <source_currency> <destination_exchange> <destination_currency>
+def parseRequest(input):
+    if input.startswith("EXCHANGE_RATE_REQUEST"):
+        splitedRequestTmp = input.split()
+        spitedRequest = {}
+        spitedRequest["source_exchange"] = splitedRequestTmp[1]
+        spitedRequest["source_currency"] = splitedRequestTmp[2]
+        spitedRequest["destination_exchange"] = splitedRequestTmp[2]
+        spitedRequest["destination_currency"] = splitedRequestTmp[5]
+
+        return spitedRequest
+    return False
+
+
+# What is the best exchange rate for converting source_currency
+# on source_exchange into destination_currency on destination_exchange,
+# and what trades and transfers need to be made to achieve that rate?
+def processRequest(request):
+    parsedRequest = parseRequest(request)
 
 
 def main():
-    price = "2017-11-01T09:42:23+00:00 KRAKEN BTC USD 1000.0 0.0009"
+    # price = "2017-11-01T09:42:23+00:00 KRAKEN BTC USD 1000.0 0.0009"
+    price = "2017-11-01T09:43:23+00:00 GDAX BTC USD 1001.0 0.0008"
+
+    # 2017-11-01T09:42:23+00:00 KRAKEN BTC USD 1000.0 0.0009 2017-11-01T09:43:23+00:00 GDAX BTC USD 1001.0 0.0008
+
     inputRequest = "KRAKEN BTC GDAX LTC"
     # processRequest(inputRequest)
-    print parsePriceUpdate(price)
+    print processPriceUpdate(price)
+
+
+def getMysqlCursor():
+    db = MySQLdb.connect(host="localhost",  # your host
+                         user="root",  # username
+                         passwd="password",  # password
+                         db="frateData")  # name of the database
+
+    # Create a Cursor object to execute queries.
+
+
+    return db
+
+    # # Select data from table using SQL query.
+    # cur.execute("SELECT * FROM edgeWeights")
+    #
+    # # print the first and second columns
+    # for row in cur.fetchall():
+    #     print row[0], " ", row[1]
 
 
 if __name__ == '__main__':
