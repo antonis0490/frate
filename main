@@ -12,7 +12,7 @@ def parsePriceUpdate(price):
     else:
         splitedPrice = {}
         splitedPrice["timestamp"] = splitedPriceTmp[0]
-        splitedPrice["exchange"] = splitedPriceTmp[1]
+        splitedPrice["source_exchange"] = splitedPriceTmp[1]
         splitedPrice["source_currency"] = splitedPriceTmp[2]
         splitedPrice["destination_currency"] = splitedPriceTmp[3]
         splitedPrice["forward_factor"] = splitedPriceTmp[4]
@@ -30,6 +30,7 @@ def processPriceUpdate(priceUpdate):
         if not priceExist:
             print "In insert"
             insertPriceUpdate(parsedPriceUpdate)
+            checkIfWeightCanCreated(parsedPriceUpdate)
         else:
             print "In update"
             print priceExist
@@ -42,16 +43,17 @@ def processPriceUpdate(priceUpdate):
         else:
             print "In update2"
             updatePriceUpdateRevert(priceExistRevert, parsedPriceUpdate)
-        #------
+        # ------
 
-        #create exchange to exchange weights
-        if checkIfWeightCanCreated(parsedPriceUpdate):
-            print "ok"
+        # # create exchange to exchange weights
+        # if checkIfWeightCanCreated(parsedPriceUpdate):
+        #     print "ok"
 
     else:
         return False
 
-#2017-11-01T09:42:23+00:00 KRAKEN BTC USD 1000.0 0.0009 2017-11-01T09:43:23+00:00 GDAX BTC USD 1001.0 0.0008
+
+# 2017-11-01T09:42:23+00:00 KRAKEN BTC USD 1000.0 0.0009 2017-11-01T09:43:23+00:00 GDAX BTC USD 1001.0 0.0008
 def checkIfWeightCanCreated(price):
     db = getMysqlCursor()
     mysqlCur = db.cursor()
@@ -59,31 +61,64 @@ def checkIfWeightCanCreated(price):
     mysqlCur.execute(
         """SELECT source_exchange, source_currency FROM frateData.edgeWeights
          where source_exchange != %s and source_currency = %s""",
-        [price['exchange'], price['source_currency']])
+        [price['source_exchange'], price['source_currency']])
     # gets the number of rows affected by the command executed
     row_count = mysqlCur.rowcount
     if not row_count == 0:
         existingPair = list(mysqlCur.fetchone())
-        print existingPair
-        print price
+
+
         mysqlCur.execute("""INSERT INTO `frateData`.`edgeWeights`
         (`source_exchange`, `source_currency`, `destination_exchange`,
         `destination_currency`, `edge`, `rate_time_ex`)
         VALUES (%s, %s, %s, %s, %s, %s)""",
-                         [price['exchange'], price['source_currency'],
+                         [price['source_exchange'], price['source_currency'],
                           existingPair[0],
                           existingPair[1], 1, datetime.datetime.now()])
         db.commit()
 
+        mysqlCur.execute("""INSERT INTO `frateData`.`edgeWeights`
+        (`source_exchange`, `source_currency`, `destination_exchange`,
+        `destination_currency`, `edge`, `rate_time_ex`)
+        VALUES (%s, %s, %s, %s, %s, %s)""",
+                         [existingPair[0], price['source_currency'],
+                            price['source_exchange'],
+                          existingPair[1], 1, datetime.datetime.now()])
+        db.commit()
 
+    mysqlCur.execute(
+        """SELECT source_exchange, destination_currency FROM frateData.edgeWeights
+         where source_exchange != %s and destination_currency = %s""",
+        [price['source_exchange'], price['destination_currency']])
+    # gets the number of rows affected by the command executed
+    row_count = mysqlCur.rowcount
+    if not row_count == 0:
+        existingPair2 = list(mysqlCur.fetchone())
+        mysqlCur.execute("""INSERT INTO `frateData`.`edgeWeights`
+        (`source_exchange`, `source_currency`, `destination_exchange`,
+        `destination_currency`, `edge`, `rate_time_ex`)
+        VALUES (%s, %s, %s, %s, %s, %s)""",
+                         [price['source_exchange'], price['destination_currency'],
+                          existingPair2[0],
+                          existingPair2[1], 1, datetime.datetime.now()])
+        db.commit()
+
+        mysqlCur.execute("""INSERT INTO `frateData`.`edgeWeights`
+        (`source_exchange`, `source_currency`, `destination_exchange`,
+        `destination_currency`, `edge`, `rate_time_ex`)
+        VALUES (%s, %s, %s, %s, %s, %s)""",
+                         [existingPair2[0], price['destination_currency'],
+                            price['source_exchange'],
+                          existingPair2[1], 1, datetime.datetime.now()])
+        db.commit()
 
 def updatePriceUpdate(priceUpdateId, priceUpdateData):
     db = getMysqlCursor()
     mysqlCur = db.cursor()
 
-
     mysqlCur.execute("""UPDATE `frateData`.`edgeWeights`
-     SET `edge`= %s, `rate_time_ex`= %s WHERE `id`= %s;""", [priceUpdateData['forward_factor'], parser.parse(priceUpdateData['timestamp']), priceUpdateId])
+     SET `edge`= %s, `rate_time_ex`= %s WHERE `id`= %s;""",
+                     [priceUpdateData['forward_factor'], parser.parse(priceUpdateData['timestamp']), priceUpdateId])
     db.commit()
 
     # print "update failed"
@@ -94,23 +129,24 @@ def updatePriceUpdateRevert(priceUpdateId, priceUpdateData):
     db = getMysqlCursor()
     mysqlCur = db.cursor()
 
-
     mysqlCur.execute("""UPDATE `frateData`.`edgeWeights`
-     SET `edge`= %s, `rate_time_ex`= %s WHERE `id`= %s;""", [priceUpdateData['backward_factor'],parser.parse(priceUpdateData['timestamp']), priceUpdateId])
+     SET `edge`= %s, `rate_time_ex`= %s WHERE `id`= %s;""",
+                     [priceUpdateData['backward_factor'], parser.parse(priceUpdateData['timestamp']), priceUpdateId])
     db.commit()
 
-        # print "update failed"
-        # db.rollback()
+    # print "update failed"
+    # db.rollback()
 
 
 def checkIfPriceExists(price):
     db = getMysqlCursor()
     mysqlCur = db.cursor()
 
+    print price
     mysqlCur.execute(
         """SELECT id FROM frateData.edgeWeights
          where source_exchange = %s and source_currency = %s and  destination_exchange = %s and destination_currency = %s""",
-        [price['exchange'], price['source_currency'], price['exchange'], price['destination_currency']])
+        [price['source_exchange'], price['source_currency'], price['source_exchange'], price['destination_currency']])
     # gets the number of rows affected by the command executed
     row_count = mysqlCur.rowcount
     if row_count == 0:
@@ -118,17 +154,17 @@ def checkIfPriceExists(price):
     else:
         id = mysqlCur.fetchone()[0]
         return id
+
 
 def checkIfPriceExistsRevert(price):
     db = getMysqlCursor()
     mysqlCur = db.cursor()
 
-    print price
 
     mysqlCur.execute(
         """SELECT id FROM frateData.edgeWeights
          where source_exchange = %s and source_currency = %s and  destination_exchange = %s and destination_currency = %s""",
-        [price['exchange'], price['destination_currency'], price['exchange'],price['source_currency']])
+        [price['source_exchange'], price['destination_currency'], price['source_exchange'], price['source_currency']])
     # gets the number of rows affected by the command executed
     row_count = mysqlCur.rowcount
     if row_count == 0:
@@ -136,6 +172,7 @@ def checkIfPriceExistsRevert(price):
     else:
         id = mysqlCur.fetchone()[0]
         return id
+
 
 def insertPriceUpdate(price):
     db = getMysqlCursor()
@@ -145,8 +182,8 @@ def insertPriceUpdate(price):
         (`source_exchange`, `source_currency`, `destination_exchange`, 
         `destination_currency`, `edge`, `rate_time_ex`) 
         VALUES (%s, %s, %s, %s, %s, %s)""",
-                         [price['exchange'], price['source_currency'],
-                          price['exchange'],
+                         [price['source_exchange'], price['source_currency'],
+                          price['source_exchange'],
                           price['destination_currency'], price['forward_factor'],
                           parser.parse(price['timestamp'])])
         db.commit()
@@ -154,6 +191,7 @@ def insertPriceUpdate(price):
         db.rollback()
 
     db.close()
+
 
 def insertPriceUpdateRevert(price):
     db = getMysqlCursor()
@@ -163,8 +201,8 @@ def insertPriceUpdateRevert(price):
         (`source_exchange`, `source_currency`, `destination_exchange`, 
         `destination_currency`, `edge`, `rate_time_ex`) 
         VALUES (%s, %s, %s, %s, %s, %s)""",
-                         [price['exchange'], price['destination_currency'],
-                          price['exchange'],
+                         [price['source_exchange'], price['destination_currency'],
+                          price['source_exchange'],
                           price['source_currency'], price['backward_factor'],
                           parser.parse(price['timestamp'])])
         db.commit()
@@ -196,8 +234,8 @@ def processRequest(request):
 
 
 def main():
-    # price = "2017-11-01T09:42:23+00:00 KRAKEN BTC USD 1000.0 0.0009"
-    price = "2017-11-01T09:43:23+00:00 GDAX BTC USD 1001.0 0.0008"
+    price = "2017-11-01T09:42:23+00:00 KRAKEN BTC USD 1000.0 0.0009"
+    # price = "2017-11-01T09:43:23+00:00 GDAX BTC USD 1001.0 0.0008"
 
     # 2017-11-01T09:42:23+00:00 KRAKEN BTC USD 1000.0 0.0009 2017-11-01T09:43:23+00:00 GDAX BTC USD 1001.0 0.0008
 
