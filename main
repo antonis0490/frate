@@ -1,0 +1,30 @@
+# function to parse the input
+# price update
+def parsePriceUpdate(price):
+    splitedPriceTmp = price.split()
+    if len(splitedPriceTmp) != 6:
+        return False
+    else:
+        splitedPrice = {}
+        splitedPrice["timestamp"] = splitedPriceTmp[0]
+        splitedPrice["exchange"] = splitedPriceTmp[1]
+        splitedPrice["source_currency"] = splitedPriceTmp[2]
+        splitedPrice["destination_currency"] = splitedPriceTmp[3]
+        splitedPrice["forward_factor"] = splitedPriceTmp[4]
+        splitedPrice["backward_factor"] = splitedPriceTmp[5]
+
+    return splitedPrice
+
+
+# def processRequest(input):
+
+
+def main():
+    price = "2017-11-01T09:42:23+00:00 KRAKEN BTC USD 1000.0 0.0009"
+    inputRequest = "KRAKEN BTC GDAX LTC"
+    # processRequest(inputRequest)
+    print parsePriceUpdate(price)
+
+
+if __name__ == '__main__':
+    main()
